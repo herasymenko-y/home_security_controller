@@ -76,7 +76,7 @@ static void on_btn_poweroff(int state, int data) {
     if (log_event("SHUTDOWN", "Power-off button pressed, stopping daemon") != 0) {
         fprintf(stderr, "Logger write error on EVENT_BTN_POWEROFF\n");
     }
-    is_run = false;
+    is_run = 0;
     pthread_mutex_lock(&sys_mut);
     pthread_cond_broadcast(&sys_sig);
     pthread_mutex_unlock(&sys_mut);
