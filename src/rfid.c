@@ -1,39 +1,40 @@
-
-#include <pthread.h>
 #include <semaphore.h>
-#include <fcntl.h>
 #include <unistd.h>
-#include <sys/ioctl.h>
-#include <linux/spi/spidev.h>
 #include <stdio.h>
 #include <stdint.h>
-#include <string.h>
 #include <time.h>
 #include "sys_state.h"
 #include "rfid.h"
+#include "event_queue.h"
+#include "logger.h"
 
+void *rfid_thread(void *arg) {
+    if (arg == NULL) {
+        if (log_event("ERROR", "RFID thread: NULL argument") != 0) {
+            fprintf(stderr, "Logger write error in rfid_thread\n");
+        }
+        return NULL;
+    }
 
-
-void* rfid_thread(void* arg)
-{
     int fd = *(int *)arg;
-
     if (fd < 0) {
-        pthread_mutex_lock(&sys_mut);
-        curr_state = STATE_ERROR;
-        pthread_cond_broadcast(&sys_sig);
-        pthread_mutex_unlock(&sys_mut);
+        if (log_event("ERROR", "RFID thread: invalid SPI fd") != 0) {
+            fprintf(stderr, "Logger write error in rfid_thread\n");
+        }
+        if (event_queue_push(EVENT_HW_ERROR, 0) != 0) {
+            fprintf(stderr, "RFID: failed to push EVENT_HW_ERROR\n");
+        }
         return NULL;
     }
 
     if (mfrc522_init(fd) < 0) {
-        close(fd);
-
-        pthread_mutex_lock(&sys_mut);
-        curr_state = STATE_ERROR;
-        pthread_cond_broadcast(&sys_sig);
-        pthread_mutex_unlock(&sys_mut);
-
+        fprintf(stderr, "Error initializing MFRC522\n");
+        if (log_event("ERROR", "Failed to initialize MFRC522") != 0) {
+            fprintf(stderr, "Logger write error on MFRC522 init\n");
+        }
+        if (event_queue_push(EVENT_HW_ERROR, 0) != 0) {
+            fprintf(stderr, "RFID: failed to push EVENT_HW_ERROR\n");
+        }
         return NULL;
     }
 
@@ -44,35 +45,14 @@ void* rfid_thread(void* arg)
             break;
         }
 
-        pthread_mutex_lock(&sys_mut);
-
-        if (curr_state == STATE_IDLE) {
-            curr_state = STATE_SCANNING;
-            pthread_cond_broadcast(&sys_sig);
-        }
-
-        if (curr_state != STATE_SCANNING) {
-            pthread_mutex_unlock(&sys_mut);
-            continue;
-        }
-
-        pthread_mutex_unlock(&sys_mut);
-
         int card_found = 0;
         int hardware_error = 0;
-
-        printf("Waiting for a card...\n");
-
         uint8_t uid[5];
 
         for (int attempt = 1; attempt <= MAX_CARD_ATTEMPTS; attempt++) {
-
-            printf("Attempt %d of %d\n", attempt, MAX_CARD_ATTEMPTS);
-
             time_t start_time = time(NULL);
 
             while (time(NULL) - start_time < CARD_ATTEMPT_TIMEOUT) {
-
                 if (!is_run) {
                     break;
                 }
@@ -95,50 +75,26 @@ void* rfid_thread(void* arg)
             if (card_found || hardware_error || !is_run) {
                 break;
             }
-
-            if (attempt < MAX_CARD_ATTEMPTS) {
-                printf("Card not detected. Please tap again!\n");
-            }
         }
 
         if (card_found) {
-            printf("Card detected!\n");
-
-            pthread_mutex_lock(&sys_mut);
-
-            if (curr_state == STATE_SCANNING) {
-                curr_state = STATE_DISARMED;
-                pthread_cond_broadcast(&sys_sig);
+            if (event_queue_push(EVENT_RFID_OK, 0) != 0) {
+                fprintf(stderr, "RFID: failed to push EVENT_RFID_OK\n");
             }
-
-            pthread_mutex_unlock(&sys_mut);
-
         } else if (hardware_error) {
-            printf("RFID hardware error!\n");
-
-            pthread_mutex_lock(&sys_mut);
-
-            if (curr_state == STATE_SCANNING) {
-                curr_state = STATE_ERROR;
-                pthread_cond_broadcast(&sys_sig);
+            fprintf(stderr, "RFID hardware error\n");
+            if (log_event("ERROR", "RFID: card read hardware error") != 0) {
+                fprintf(stderr, "Logger write error on RFID read\n");
             }
-
-            pthread_mutex_unlock(&sys_mut);
-
+            if (event_queue_push(EVENT_HW_ERROR, 0) != 0) {
+                fprintf(stderr, "RFID: failed to push EVENT_HW_ERROR\n");
+            }
         } else if (is_run) {
-            printf("Timeout: Card not detected!\n");
-
-            pthread_mutex_lock(&sys_mut);
-
-            if (curr_state == STATE_SCANNING) {
-                curr_state = STATE_ALARM;
-                pthread_cond_broadcast(&sys_sig);
+            if (event_queue_push(EVENT_RFID_FAIL, 0) != 0) {
+                fprintf(stderr, "RFID: failed to push EVENT_RFID_FAIL\n");
             }
-
-            pthread_mutex_unlock(&sys_mut);
         }
     }
 
     return NULL;
 }
-

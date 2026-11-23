@@ -21,3 +21,5 @@ extern sem_t sem_rfid;
 extern atomic_bool is_run; 
 
 #endif //SYS_STATE_H
+
+
