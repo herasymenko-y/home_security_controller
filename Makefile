@@ -1,15 +1,18 @@
-
 CC ?= gcc
 
 CFLAGS = -Wall -Wextra -pthread -Iinclude
 LIBS = -lgpiod -pthread
 
 SRC = $(wildcard src/*.c)
-
 OBJ = $(SRC:.c=.o)
-TARGET = sys_daemon
+TARGET = home_security
+SERVICE = home_security.service
 
-.PHONY: all clean format
+PREFIX ?= /usr/local
+BINDIR = $(DESTDIR)$(PREFIX)/bin
+SYSTEMD_DIR = $(DESTDIR)/etc/systemd/system
+
+.PHONY: all clean format install uninstall
 
 all: $(TARGET)
 
@@ -19,6 +22,15 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+install: $(TARGET)
+	install -d $(BINDIR)
+	install -m 755 $(TARGET) $(BINDIR)/$(TARGET)
+	install -d $(SYSTEMD_DIR)
+	install -m 644 $(SERVICE) $(SYSTEMD_DIR)/$(SERVICE)
+
+uninstall:
+	rm -f $(BINDIR)/$(TARGET)
+	rm -f $(SYSTEMD_DIR)/$(SERVICE)
 format:
 	clang-format -i $(SRC) include/*.h
 

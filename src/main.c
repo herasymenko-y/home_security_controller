@@ -18,6 +18,7 @@
 #include "pwm_config.h"
 #include "event_queue.h"
 #include "logger.h"
+#include <signal.h>
 
 int curr_state = STATE_IDLE;
 atomic_bool is_run = ATOMIC_VAR_INIT(1);
@@ -72,6 +73,12 @@ static void cleanup_resources(struct gpio_param *hw, struct pwm_param *pwm,
     }
 }
 
+static void handle_signal(int sig) {
+    (void)sig;
+    is_run = 0;
+    sem_post(&sem_rfid);
+}
+
 int main(void) {
     int ret = 0;
     int spi_fd = -1;
@@ -112,6 +119,16 @@ int main(void) {
         return -1;
     }
     sem_initialized = 1;
+
+struct sigaction sa = {0};
+sa.sa_handler = handle_signal;
+sigemptyset(&sa.sa_mask);
+
+if (sigaction(SIGINT, &sa, NULL) < 0 || sigaction(SIGTERM, &sa, NULL) < 0) {
+    perror("Signal handler initialization");
+    cleanup_resources(&hw, &pwm, pwm_initialized, i2c_fd, spi_fd, sem_initialized, logger_initialized);
+    return -1;
+}
 
     spi_fd = spi_init();
     if (spi_fd < 0) {

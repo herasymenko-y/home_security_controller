@@ -1,0 +1,14 @@
+[Unit]
+Description=Home Security Controller Daemon
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/home_security
+WorkingDirectory=/var/log
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
